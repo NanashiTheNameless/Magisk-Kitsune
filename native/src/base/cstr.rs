@@ -2,7 +2,8 @@ use std::cmp::min;
 use std::ffi::{CStr, FromBytesWithNulError, OsStr};
 use std::fmt::{Arguments, Debug, Display, Formatter, Write};
 use std::ops::{Deref, DerefMut};
-use std::path::Path;
+use std::os::unix::ffi::OsStrExt;
+use std::path::{Path, PathBuf};
 use std::str::{Utf8Chunks, Utf8Error};
 use std::{fmt, mem, slice, str};
 
@@ -33,13 +34,6 @@ use crate::slice_from_ptr_mut;
 // Utf8CString, Utf8CStrBufRef, and Utf8CStrBufArr<N> implements Utf8CStrWrite.
 // Utf8CStrBufRef and Utf8CStrBufArr<N> implements Utf8CStrBuf.
 
-pub fn copy_cstr<T: AsRef<CStr> + ?Sized>(dest: &mut [u8], src: &T) -> usize {
-    let src = src.as_ref().to_bytes_with_nul();
-    let len = min(src.len(), dest.len());
-    dest[..len].copy_from_slice(&src[..len]);
-    len - 1
-}
-
 fn utf8_cstr_buf_append(buf: &mut dyn Utf8CStrBuf, s: &[u8]) -> usize {
     let mut used = buf.len();
     if used >= buf.capacity() - 1 {
@@ -48,7 +42,9 @@ fn utf8_cstr_buf_append(buf: &mut dyn Utf8CStrBuf, s: &[u8]) -> usize {
     }
     let dest = unsafe { &mut buf.mut_buf()[used..] };
     let len = min(s.len(), dest.len() - 1);
-    dest[..len].copy_from_slice(&s[..len]);
+    if len > 0 {
+        dest[..len].copy_from_slice(&s[..len]);
+    }
     dest[len] = b'\0';
     used += len;
     unsafe { buf.set_len(used) };
@@ -105,7 +101,7 @@ trait AsUtf8CStr {
 
 // Implementation for Utf8CString
 
-trait StringExt {
+pub trait StringExt {
     fn nul_terminate(&mut self) -> &mut [u8];
 }
 
@@ -117,6 +113,21 @@ impl StringExt for String {
         unsafe {
             let buf = slice::from_raw_parts_mut(self.as_mut_ptr(), self.len() + 1);
             *buf.get_unchecked_mut(self.len()) = b'\0';
+            buf
+        }
+    }
+}
+
+impl StringExt for PathBuf {
+    #[allow(mutable_transmutes)]
+    fn nul_terminate(&mut self) -> &mut [u8] {
+        self.reserve(1);
+        // SAFETY: the PathBuf is reserved to have enough capacity to fit in the null byte
+        // SAFETY: the null byte is explicitly added outside of the PathBuf's length
+        unsafe {
+            let bytes: &mut [u8] = mem::transmute(self.as_mut_os_str().as_bytes());
+            let buf = slice::from_raw_parts_mut(bytes.as_mut_ptr(), bytes.len() + 1);
+            *buf.get_unchecked_mut(bytes.len()) = b'\0';
             buf
         }
     }
@@ -435,6 +446,7 @@ pub struct FsPathBuf<'a>(&'a mut dyn Utf8CStrWrite);
 
 impl<'a> FsPathBuf<'a> {
     pub fn new(value: &'a mut dyn Utf8CStrWrite) -> Self {
+        value.clear();
         FsPathBuf(value)
     }
 
@@ -640,7 +652,8 @@ macro_rules! cstr {
         );
         #[allow(unused_unsafe)]
         unsafe {
-            $crate::Utf8CStr::from_bytes_unchecked(concat!($($str)*, "\0").as_bytes())
+            $crate::Utf8CStr::from_bytes_unchecked($crate::const_format::concatcp!($($str)*, "\0")
+                .as_bytes())
         }
     }};
 }
@@ -648,6 +661,6 @@ macro_rules! cstr {
 #[macro_export]
 macro_rules! raw_cstr {
     ($($str:tt)*) => {{
-        cstr!($($str)*).as_ptr()
+        $crate::cstr!($($str)*).as_ptr()
     }};
 }

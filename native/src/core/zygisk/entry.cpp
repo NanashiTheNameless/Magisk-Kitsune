@@ -13,18 +13,16 @@
 
 using namespace std;
 
-void *self_handle = nullptr;
 string native_bridge = "0";
 
 static bool is_compatible_with(uint32_t) {
-    auto name = get_prop(NBPROP);
-    android_logging();
+    zygisk_logging();
     hook_functions();
     ZLOGD("load success\n");
     return false;
 }
 
-extern "C" [[maybe_unused]] NativeBridgeCallbacks NativeBridgeItf{
+extern "C" [[maybe_unused]] NativeBridgeCallbacks NativeBridgeItf {
     .version = 2,
     .padding = {},
     .isCompatibleWith = &is_compatible_with,
@@ -99,7 +97,11 @@ static void connect_companion(int client, bool is_64_bit) {
         zygiskd_socket = fds[0];
         if (fork_dont_care() == 0) {
             char exe[64];
-            ssprintf(exe, sizeof(exe), "%s/magisk%s", get_magisk_tmp(), (is_64_bit ? "64" : "32"));
+#if defined(__LP64__)
+            ssprintf(exe, sizeof(exe), "%s/magisk%s", get_magisk_tmp(), (is_64_bit ? "" : "32"));
+#else
+            ssprintf(exe, sizeof(exe), "%s/magisk", get_magisk_tmp());
+#endif
             // This fd has to survive exec
             fcntl(fds[1], F_SETFD, 0);
             char buf[16];

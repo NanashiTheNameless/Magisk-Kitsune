@@ -17,13 +17,8 @@ import com.topjohnwu.magisk.ui.flash.FlashFragment
 import com.topjohnwu.magisk.view.Notifications
 import kotlinx.parcelize.IgnoredOnParcel
 import kotlinx.parcelize.Parcelize
-
-private fun cachedFile(name: String) = AppContext.cachedFile(name).apply { delete() }.toUri()
-
-enum class Action {
-    Flash,
-    Download
-}
+import java.io.File
+import java.util.UUID
 
 sealed class Subject : Parcelable {
 
@@ -32,19 +27,17 @@ sealed class Subject : Parcelable {
     abstract val title: String
     abstract val notifyId: Int
     open val autoLaunch: Boolean get() = true
-    open val postDownload: (() -> Unit)? get() = null
 
-    abstract fun pendingIntent(context: Context): PendingIntent?
+    open fun pendingIntent(context: Context): PendingIntent? = null
 
     @Parcelize
     class Module(
-        val module: OnlineModule,
-        val action: Action,
+        private val module: OnlineModule,
+        override val autoLaunch: Boolean,
         override val notifyId: Int = Notifications.nextId()
     ) : Subject() {
         override val url: String get() = module.zipUrl
         override val title: String get() = module.downloadFilename
-        override val autoLaunch: Boolean get() = action == Action.Flash
 
         @IgnoredOnParcel
         override val file by lazy {
@@ -65,15 +58,22 @@ sealed class Subject : Parcelable {
 
         @IgnoredOnParcel
         override val file by lazy {
-            cachedFile("manager.apk")
+            MediaStoreUtils.getFile("${title}.apk").uri
         }
-
-        @IgnoredOnParcel
-        override var postDownload: (() -> Unit)? = null
 
         @IgnoredOnParcel
         var intent: Intent? = null
         override fun pendingIntent(context: Context) = intent?.toPending(context)
+    }
+
+    @Parcelize
+    class Test(
+        override val notifyId: Int = Notifications.nextId(),
+        override val title: String = UUID.randomUUID().toString().substring(0, 6)
+    ) : Subject() {
+        override val url get() = "https://link.testfile.org/250MB"
+        override val file get() = File("/dev/null").toUri()
+        override val autoLaunch get() = false
     }
 
     @SuppressLint("InlinedApi")

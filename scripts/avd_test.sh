@@ -3,25 +3,20 @@
 emu="$ANDROID_SDK_ROOT/emulator/emulator"
 avd="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/avdmanager"
 sdk="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-emu_args='-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -read-only -no-snapshot -show-kernel -memory 8192'
+emu_args_base='-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -read-only -no-snapshot -show-kernel -memory $memory'
 lsposed_url='https://github.com/LSPosed/LSPosed/releases/download/v1.9.2/LSPosed-v1.9.2-7024-zygisk-release.zip'
-emu_url='https://github.com/topjohnwu/magisk-files/releases/download/files/emulator-darwin-x86-34.2.1.zip'
 boot_timeout=600
 emu_pid=
 
-# We test these API levels for the following reason
+export PATH="$PATH:$ANDROID_SDK_ROOT/platform-tools"
 
-# API 23: legacy rootfs w/o Treble
-# API 26: legacy rootfs with Treble
-# API 28: legacy system-as-root
-# API 29: 2 Stage Init
-# API 34: latest Android
-
-api_list='23 26 28 29 34'
-
+min_api=23
+max_api=34
 atd_min_api=30
 atd_max_api=34
 lsposed_min_api=27
+huge_ram_min_api=26
+i386_max_api=30
 
 print_title() {
   echo -e "\n\033[44;39m${1}\033[0m\n"
@@ -73,11 +68,19 @@ wait_for_boot() {
 }
 
 set_api_env() {
+  local memory
   local type='default'
   if [ $1 -ge $atd_min_api -a $1 -le $atd_max_api ]; then
     # Use the lightweight ATD images if possible
     type='aosp_atd'
   fi
+  # Old Linux kernels will not boot with memory larger than 3GB
+  if [ $1 -lt $huge_ram_min_api ]; then
+    memory=3072
+  else
+    memory=8192
+  fi
+  eval emu_args=\"$emu_args_base\"
   pkg="system-images;android-$1;$type;$arch"
   local img_dir="$ANDROID_SDK_ROOT/system-images/android-$1/$type/$arch"
   ramdisk="$img_dir/ramdisk.img"
@@ -128,7 +131,7 @@ test_emu() {
   emu_pid=$!
   wait_emu wait_for_boot
 
-  adb shell magisk -v
+  adb shell 'PATH=$PATH:/debug_ramdisk magisk -v'
 
   # Install the Magisk app
   adb install -r -g out/app-${variant}.apk
@@ -139,7 +142,7 @@ test_emu() {
   # Install LSPosed
   if [ $api -ge $lsposed_min_api -a $api -le $atd_max_api ]; then
     adb push out/lsposed.zip /data/local/tmp/lsposed.zip
-    adb shell echo 'magisk --install-module /data/local/tmp/lsposed.zip' \| /system/xbin/su
+    adb shell echo 'PATH=$PATH:/debug_ramdisk magisk --install-module /data/local/tmp/lsposed.zip' \| /system/xbin/su
   fi
 
   adb reboot
@@ -212,18 +215,24 @@ case $(uname -m) in
     ;;
 esac
 
+if [ -n "$FORCE_32_BIT" ]; then
+  case $arch in
+    'arm64-v8a')
+      echo "! ARM32 is not supported"
+      exit 1
+      ;;
+    'x86_64')
+      arch=x86
+      max_api=$i386_max_api
+      ;;
+  esac
+fi
+
+api_list=$(seq $min_api $max_api)
+
 yes | "$sdk" --licenses > /dev/null
 curl -L $lsposed_url -o out/lsposed.zip
-
-if [ -n "$GITHUB_ACTIONS" ]; then
-  # Download the specially built emulator to run on GitHub action runners
-  curl -L $emu_url -o emulator.zip
-  unzip emulator.zip
-  emu='./emulator/emulator'
-else
-  # Directly use the official emulator
-  "$sdk" --channel=3 emulator
-fi
+"$sdk" --channel=3 tools platform-tools emulator
 
 if [ -n "$1" ]; then
   run_test $1

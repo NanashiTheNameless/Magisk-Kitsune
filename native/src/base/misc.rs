@@ -1,5 +1,7 @@
+use std::fmt::Arguments;
+use std::io::Write;
 use std::process::exit;
-use std::{io, slice, str};
+use std::{fmt, io, slice, str};
 
 use argh::EarlyExit;
 use libc::c_char;
@@ -76,11 +78,40 @@ impl<T> LibcReturn for *mut T {
     }
 }
 
+pub trait BytesExt {
+    fn find(&self, needle: &[u8]) -> Option<usize>;
+    fn contains(&self, needle: &[u8]) -> bool {
+        self.find(needle).is_some()
+    }
+}
+
+impl<T: AsRef<[u8]> + ?Sized> BytesExt for T {
+    fn find(&self, needle: &[u8]) -> Option<usize> {
+        fn inner(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+            unsafe {
+                let ptr: *const u8 = libc::memmem(
+                    haystack.as_ptr().cast(),
+                    haystack.len(),
+                    needle.as_ptr().cast(),
+                    needle.len(),
+                )
+                .cast();
+                if ptr.is_null() {
+                    None
+                } else {
+                    Some(ptr.offset_from(haystack.as_ptr()) as usize)
+                }
+            }
+        }
+        inner(self.as_ref(), needle)
+    }
+}
+
 pub trait MutBytesExt {
     fn patch(&mut self, from: &[u8], to: &[u8]) -> Vec<usize>;
 }
 
-impl<T: AsMut<[u8]>> MutBytesExt for T {
+impl<T: AsMut<[u8]> + ?Sized> MutBytesExt for T {
     fn patch(&mut self, from: &[u8], to: &[u8]) -> Vec<usize> {
         ffi::mut_u8_patch(self.as_mut(), from, to)
     }
@@ -115,5 +146,18 @@ impl<T> EarlyExitExt<T> for Result<T, EarlyExit> {
                 }
             },
         }
+    }
+}
+
+pub struct FmtAdaptor<'a, T>(pub &'a mut T)
+where
+    T: Write;
+
+impl<T: Write> fmt::Write for FmtAdaptor<'_, T> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.0.write_all(s.as_bytes()).map_err(|_| fmt::Error)
+    }
+    fn write_fmt(&mut self, args: Arguments<'_>) -> fmt::Result {
+        self.0.write_fmt(args).map_err(|_| fmt::Error)
     }
 }

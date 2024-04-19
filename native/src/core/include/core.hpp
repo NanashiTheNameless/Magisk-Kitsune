@@ -42,7 +42,6 @@ extern std::string native_bridge;
 
 void reset_zygisk(bool restore);
 int connect_daemon(int req, bool create = false);
-std::string find_preinit_device();
 void unlock_blocks();
 
 // Poll control
@@ -52,6 +51,7 @@ void unregister_poll(int fd, bool auto_close);
 void clear_poll();
 
 // Thread pool
+void init_thread_pool();
 void exec_task(std::function<void()> &&task);
 
 // Daemon handlers
@@ -61,7 +61,6 @@ void su_daemon_handler(int client, const sock_cred *cred);
 void zygisk_handler(int client, const sock_cred *cred);
 
 // Package
-extern std::atomic<ino_t> pkg_xml_ino;
 void preserve_stub_apk();
 void check_pkg_refresh();
 std::vector<bool> get_app_no_list();
@@ -92,4 +91,4 @@ extern std::atomic<bool> denylist_enforced;
 int denylist_cli(int argc, char **argv);
 void initialize_denylist();
 bool is_deny_target(int uid, std::string_view process);
-void revert_unmount();
+void revert_unmount(int pid = -1) noexcept;

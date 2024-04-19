@@ -3,6 +3,7 @@
 #![feature(io_error_more)]
 #![feature(utf8_chunks)]
 
+pub use const_format;
 pub use libc;
 use num_traits::FromPrimitive;
 
@@ -11,12 +12,14 @@ use cxx_extern::*;
 pub use files::*;
 pub use logging::*;
 pub use misc::*;
+pub use result::*;
 
 mod cstr;
 mod cxx_extern;
 mod files;
 mod logging;
 mod misc;
+mod result;
 mod xwrap;
 
 #[cxx::bridge]

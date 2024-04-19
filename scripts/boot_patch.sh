@@ -18,7 +18,7 @@
 # util_functions.sh  script    A script which hosts all functions required
 #                              for this script to work properly.
 # magiskinit         binary    The binary to replace /init.
-# magisk(32/64)      binary    The magisk binaries.
+# magisk             binary    The magisk binary.
 # magiskboot         binary    A tool to manipulate boot images.
 # stub.apk           binary    The stub Magisk app to embed into ramdisk.
 # chromeos           folder    This folder includes the utility and keys to sign
@@ -139,12 +139,6 @@ case $((STATUS & 3)) in
     ;;
 esac
 
-# Workaround custom legacy Sony /init -> /(s)bin/init_sony : /init.real setup
-INIT=init
-if [ $((STATUS & 4)) -ne 0 ]; then
-  INIT=init.real
-fi
-
 if [ -f config.orig ]; then
   # Read existing configs
   chmod 0644 config.orig
@@ -162,19 +156,10 @@ fi
 
 ui_print "- Patching ramdisk"
 
+$BOOTMODE && [ -z "$PREINITDEVICE" ] && PREINITDEVICE=$(./magisk --preinit-device)
+
 # Compress to save precious ramdisk space
-SKIP32="#"
-SKIP64="#"
-if [ -f magisk64 ]; then
-  $BOOTMODE && [ -z "$PREINITDEVICE" ] && PREINITDEVICE=$(./magisk64 --preinit-device)
-  ./magiskboot compress=xz magisk64 magisk64.xz
-  unset SKIP64
-fi
-if [ -f magisk32 ]; then
-  $BOOTMODE && [ -z "$PREINITDEVICE" ] && PREINITDEVICE=$(./magisk32 --preinit-device)
-  ./magiskboot compress=xz magisk32 magisk32.xz
-  unset SKIP32
-fi
+./magiskboot compress=xz magisk magisk.xz
 ./magiskboot compress=xz stub.apk stub.xz
 
 echo "KEEPVERITY=$KEEPVERITY" > config
@@ -187,11 +172,10 @@ fi
 [ -n "$SHA1" ] && echo "SHA1=$SHA1" >> config
 
 ./magiskboot cpio ramdisk.cpio \
-"add 0750 $INIT magiskinit" \
+"add 0750 init magiskinit" \
 "mkdir 0750 overlay.d" \
 "mkdir 0750 overlay.d/sbin" \
-"$SKIP32 add 0644 overlay.d/sbin/magisk32.xz magisk32.xz" \
-"$SKIP64 add 0644 overlay.d/sbin/magisk64.xz magisk64.xz" \
+"add 0644 overlay.d/sbin/magisk.xz magisk.xz" \
 "add 0644 overlay.d/sbin/stub.xz stub.xz" \
 "patch" \
 "$SKIP_BACKUP backup ramdisk.cpio.orig" \
